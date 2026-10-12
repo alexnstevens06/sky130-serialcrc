@@ -1,0 +1,55 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Icarus Verilog + Verilator
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends iverilog verilator make python3
+          iverilog -V 2>&1 | head -n 1
+          verilator --version
+      - name: Lint (verilator --lint-only -Wall)
+        run: make lint
+      - name: Self-checking testbenches (Icarus)
+        run: make test
+      - name: Coverage (Verilator)
+        run: make coverage JOBS=2
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f build/coverage/summary.txt ]; then
+            { echo '### Coverage (rtl/)'; echo '```'; cat build/coverage/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sim-and-coverage
+          path: |
+            build/sim/*.log
+            build/coverage/summary.txt
+            build/coverage/annotated
+          if-no-files-found: ignore
+
+  synth:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: YosysHQ/setup-oss-cad-suite@v3
+      - name: Fetch sky130_fd_sc_hd liberty (typical corner)
+        run: make fetch-lib
+      - name: Yosys synthesis to sky130_fd_sc_hd
+        run: make synth NICE=
+      - name: Synthesis summary
+        run: |
+          { echo '### Synthesis (sky130_fd_sc_hd)'; echo '```'; cat build/synth/summary.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synth
+          path: build/synth

@@ -1,0 +1,56 @@
+# TinyTapeout project information (format follows the tt09+ template)
+project:
+  title:        "SerialCRC: SPI-controlled UART + CRC-16 accelerator"
+  author:       "Alex Stevens"
+  discord:      ""
+  description:  "SPI register interface fronting an 8N1 UART and a programmable CRC-16 engine with UART-to-CRC streaming"
+  language:     "Verilog"
+  clock_hz:     10000000
+
+  # Yosys estimate is ~11.5k um^2 of cells (~64% of a 1x1 tile), so 1x2 is
+  # requested to leave routing headroom. See README "Next steps".
+  tiles: "1x2"
+
+  top_module:  "tt_um_alexstevens_serialcrc"
+
+  source_files:
+    - "sync2.v"
+    - "spi_slave.v"
+    - "uart_tx.v"
+    - "uart_rx.v"
+    - "crc16_engine.v"
+    - "regfile.v"
+    - "tt_um_alexstevens_serialcrc.v"
+
+pinout:
+  # Inputs
+  ui[0]: "uart_rx"
+  ui[1]: "spi_sclk"
+  ui[2]: "spi_cs_n"
+  ui[3]: "spi_mosi"
+  ui[4]: ""
+  ui[5]: ""
+  ui[6]: ""
+  ui[7]: ""
+
+  # Outputs
+  uo[0]: "uart_tx"
+  uo[1]: "spi_miso"
+  uo[2]: "crc_busy"
+  uo[3]: "irq"
+  uo[4]: "uart_tx_busy"
+  uo[5]: "uart_rx_valid"
+  uo[6]: ""
+  uo[7]: ""
+
+  # Bidirectional pins (general-purpose outputs, GPIO_OUT / GPIO_OE registers)
+  uio[0]: "gpio0"
+  uio[1]: "gpio1"
+  uio[2]: "gpio2"
+  uio[3]: "gpio3"
+  uio[4]: "gpio4"
+  uio[5]: "gpio5"
+  uio[6]: "gpio6"
+  uio[7]: "gpio7"
+
+yaml_version: 6

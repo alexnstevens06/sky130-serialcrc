@@ -1,0 +1,8 @@
+build/
+obj_dir/
+*.vcd
+*.fst
+*.dat
+*.vvp
+__pycache__/
+.grok_prompt*.txt

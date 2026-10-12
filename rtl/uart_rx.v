@@ -1,0 +1,71 @@
+// UART receiver, 8N1, mid-bit sampling. Each bit lasts (div + 1) clocks.
+// - false-start rejection: start bit re-checked at its midpoint
+// - framing check: stop bit must be high, else frame_err pulses and the
+//   receiver waits for the line to return high (break) before re-arming.
+// rx must already be synchronized to clk.
+`default_nettype none
+module uart_rx (
+    input  wire        clk,
+    input  wire        rst_n,
+    input  wire [15:0] div,
+    input  wire        rx,
+    output reg         valid,
+    output reg  [7:0]  data,
+    output reg         frame_err
+);
+    localparam S_IDLE = 3'd0, S_START = 3'd1, S_DATA = 3'd2,
+               S_STOP = 3'd3, S_BREAK = 3'd4;
+
+    reg [2:0]  state;
+    reg [15:0] cnt;
+    reg [2:0]  bitn;
+    reg [7:0]  sh;
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            state     <= S_IDLE;
+            cnt       <= 16'd0;
+            bitn      <= 3'd0;
+            sh        <= 8'd0;
+            data      <= 8'd0;
+            valid     <= 1'b0;
+            frame_err <= 1'b0;
+        end else begin
+            valid     <= 1'b0;
+            frame_err <= 1'b0;
+            case (state)
+                S_IDLE: if (!rx) begin
+                    state <= S_START;
+                    cnt   <= {1'b0, div[15:1]};
+                end
+                S_START: if (cnt != 16'd0) cnt <= cnt - 16'd1;
+                else if (!rx) begin
+                    state <= S_DATA;
+                    cnt   <= div;
+                    bitn  <= 3'd0;
+                end else begin
+                    state <= S_IDLE;     // glitch, not a real start bit
+                end
+                S_DATA: if (cnt != 16'd0) cnt <= cnt - 16'd1;
+                else begin
+                    sh   <= {rx, sh[7:1]};
+                    cnt  <= div;
+                    bitn <= bitn + 3'd1;
+                    if (bitn == 3'd7) state <= S_STOP;
+                end
+                S_STOP: if (cnt != 16'd0) cnt <= cnt - 16'd1;
+                else if (rx) begin
+                    valid <= 1'b1;
+                    data  <= sh;
+                    state <= S_IDLE;
+                end else begin
+                    frame_err <= 1'b1;
+                    state     <= S_BREAK;
+                end
+                S_BREAK: if (rx) state <= S_IDLE;
+                default: state <= S_IDLE;
+            endcase
+        end
+    end
+endmodule
+`default_nettype wire
