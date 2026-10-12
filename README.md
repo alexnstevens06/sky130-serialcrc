@@ -144,25 +144,28 @@ make synth       # Yosys -> sky130_fd_sc_hd cells, area report in build/synth/
 |-----------|-------|--------|
 | `tb_crc16` | 7 catalogue CRC-16 variants on `"123456789"`, 250 random poly/init/xorout/reflection/length cases against a byte-wise reference model, busy/done/clear/reset behaviour | 4,439 |
 | `tb_uart` | TX->RX loopback of all 256 bytes, divisors 4 to 0xFFFF, exact bit timing, start-while-busy, false start glitch, framing error + break recovery, +/-3% baud mismatch, back-to-back frames | 689 |
-| `tb_top` | Chip pins only: SPI master model at the minimum 8:1 clock ratio, every register's reset value and readback, random register traffic against a shadow model, unmapped/read-only addresses, aborted SPI transfers, CRC presets over SPI, IRQs, UART TX/RX models, overrun (including mid-read), framing error, pin loopback, UART->CRC streaming (CRC-16/MODBUS) | 177 |
+| `tb_top` | Chip pins only: SPI master model at the minimum 8:1 clock ratio, every register's reset value and readback, random register traffic against a shadow model, unmapped/read-only addresses, aborted SPI transfers, CRC presets over SPI, IRQs, UART TX/RX models, overrun (including mid-read), framing error, pin loopback, UART->CRC streaming (CRC-16/MODBUS), false-start glitch | 178 |
 
 All tests pass under both Icarus Verilog and Verilator.
 
-**Coverage** (Verilator, merged over all testbenches, `rtl/` only):
+**Coverage** (Verilator 5.05x, all testbenches merged, `rtl/` only; points are counted per
+instance):
 
-| File | Line | Points (line+toggle+branch) |
-|------|------|------------------------------|
-| crc16_engine.v | 100% | 99.8% |
-| regfile.v | 100% | 99.3% |
-| spi_slave.v | 100% | 100% |
-| sync2.v | 100% | 100% |
-| tt_um_alexstevens_serialcrc.v | 94.7% | 92.4% |
-| uart_rx.v | 98.0% | 90.8% |
-| uart_tx.v | 100% | 93.8% |
-| **Total** | **99.4%** (314/316) | **96.4%** (2205/2288) |
+| File | Line/branch points | Toggle points |
+|------|--------------------|---------------|
+| crc16_engine.v | 18/18 (100%) | 531/532 (99.8%) |
+| regfile.v | 57/57 (100%) | 510/514 (99.2%) |
+| spi_slave.v | 19/19 (100%) | 110/110 (100%) |
+| sync2.v | 6/6 (100%) | 24/24 (100%) |
+| tt_um_alexstevens_serialcrc.v | - | 353/382 (92.4%) |
+| uart_rx.v | 44/46 (95.7%) | 210/236 (89.0%) |
+| uart_tx.v | 18/18 (100%) | 214/232 (92.2%) |
+| **Total** | **162/164 (98.8%)** | **1952/2030 (96.2%)** |
 
-The remaining gaps are the unreachable `default:` FSM arm, the unused TinyTapeout inputs
-(`uio_in`, `ui_in[7:4]`, `ena`), and constant outputs.
+What is left uncovered: the unreachable `default:` FSM arm, a false-start rejection that is
+only exercised at unit level, the unused TinyTapeout inputs (`uio_in`, `ui_in[7:4]`, `ena`),
+constant outputs, and the top bits of the 16-bit baud counters at chip level. CI's
+Verilator 5.020 counts toggles differently and reports 98.1% line / 96.6% toggle.
 
 **Mutation check:** I injected five hand-made RTL bugs (overrun never set, SPI MISO off by one
 bit, UART RX sampling at bit edge instead of mid-bit, sticky bit cleared without the read
@@ -187,8 +190,8 @@ before placement, resizing, and buffering.
 
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)):
 
-- **lint-test**: Ubuntu 24.04 with apt `iverilog` + `verilator`, runs `make lint test coverage`
-  and uploads logs and annotated coverage.
+- **lint-test**: Ubuntu 24.04 with apt `iverilog` 12 + `verilator` 5.020, runs
+  `make lint test coverage`, and uploads logs and annotated coverage.
 - **synth**: OSS CAD Suite, fetches the liberty file, runs `make synth`, and posts the area
   summary.
 

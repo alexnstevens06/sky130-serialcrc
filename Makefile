@@ -52,17 +52,21 @@ test: $(addprefix $(BUILD)/sim/,$(addsuffix .vvp,$(TBS)))
 # ---- coverage (Verilator line + toggle + branch) ----
 coverage: | $(BUILD)/coverage
 	@set -e; for t in $(TBS); do \
-	  $(NICE) $(VERILATOR) --binary --timing --coverage-line --coverage-toggle \
-	    --timescale 1ns/1ps -Wno-fatal -Wno-lint -Wno-style -j $(JOBS) \
-	    --top-module $$t -Mdir $(BUILD)/coverage/obj_$$t -o V$$t tb/$$t.v $(RTL) >/dev/null; \
-	  (cd $(BUILD)/coverage && $(NICE) ./obj_$$t/V$$t +verilator+coverage+file+$$t.dat > $$t.log 2>&1); \
+	  $(NICE) $(VERILATOR) --cc --exe --build --timing --coverage-line --coverage-toggle \
+	    --timescale 1ns/1ps -Wno-fatal -Wno-lint -Wno-style -j $(JOBS) --prefix Vtop \
+	    --top-module $$t -Mdir $(BUILD)/coverage/obj_$$t -o Vtop tb/$$t.v $(RTL) \
+	    $(CURDIR)/tb/sim_main.cpp >$(BUILD)/coverage/$$t.build.log 2>&1 || \
+	    { tail -n 30 $(BUILD)/coverage/$$t.build.log; exit 1; }; \
+	  rm -rf $(BUILD)/coverage/run_$$t && mkdir -p $(BUILD)/coverage/run_$$t; \
+	  (cd $(BUILD)/coverage/run_$$t && $(NICE) ../obj_$$t/Vtop > ../$$t.log 2>&1); \
+	  mv $(BUILD)/coverage/run_$$t/coverage.dat $(BUILD)/coverage/$$t.dat; \
 	  grep -q '^PASS' $(BUILD)/coverage/$$t.log || { echo "[FAIL] $$t (verilator)"; tail -n 30 $(BUILD)/coverage/$$t.log; exit 1; }; \
 	  echo "[PASS] $$t (verilator)"; \
 	done
 	$(VCOV) --write $(BUILD)/coverage/merged.dat $(addprefix $(BUILD)/coverage/,$(addsuffix .dat,$(TBS)))
 	$(VCOV) --write-info $(BUILD)/coverage/merged.info $(BUILD)/coverage/merged.dat
 	$(VCOV) --annotate $(BUILD)/coverage/annotated --annotate-min 1 $(BUILD)/coverage/merged.dat > $(BUILD)/coverage/annotate.txt
-	$(PYTHON) scripts/cov_summary.py $(BUILD)/coverage/merged.info rtl/ | tee $(BUILD)/coverage/summary.txt
+	$(PYTHON) scripts/cov_summary.py $(BUILD)/coverage/merged.dat rtl/ | tee $(BUILD)/coverage/summary.txt
 
 # ---- synthesis (Yosys -> sky130_fd_sc_hd) ----
 synth: | $(BUILD)/synth

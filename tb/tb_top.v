@@ -353,6 +353,12 @@ module tb_top;
         expect_reg(A_STATUS, 8'h00, "frame_err cleared");
         uart_send(8'h66, 1'b1);
         expect_reg(A_UART, 8'h66, "rx after framing error");
+        // A short low glitch on uart_rx is rejected as a false start bit.
+        @(negedge clk) ui_in[0] = 1'b0;
+        repeat (4) @(negedge clk);
+        ui_in[0] = 1'b1;
+        repeat (bitclk * 12) @(negedge clk);
+        expect_reg(A_STATUS, 8'h00, "false start ignored");
 
         // --- UART loopback through the chip pins (uo_out[0] -> ui_in[0]) ---
         n = ntx;
