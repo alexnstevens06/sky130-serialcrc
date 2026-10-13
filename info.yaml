@@ -5,7 +5,7 @@ project:
   discord:      ""
   description:  "SPI register interface fronting an 8N1 UART and a programmable CRC-16 engine with UART-to-CRC streaming"
   language:     "Verilog"
-  clock_hz:     10000000
+  clock_hz:     66000000
 
   # Yosys estimate is ~11.5k um^2 of cells (~64% of a 1x1 tile), so 1x2 is
   # requested to leave routing headroom. See README "Next steps".
