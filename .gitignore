@@ -5,4 +5,5 @@ obj_dir/
 *.dat
 *.vvp
 __pycache__/
-.grok_prompt*.txt
+librelane/runs/
+runs/

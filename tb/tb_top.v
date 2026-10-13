@@ -268,7 +268,7 @@ module tb_top;
         crc_string_spi(16'h8005, 16'hFFFF, 1'b1, 16'h0000, 16'h4B37, "CRC-16/MODBUS");
         crc_string_spi(16'h1021, 16'h0000, 1'b0, 16'h0000, 16'h31C3, "CRC-16/XMODEM");
         crc_string_spi(16'h1021, 16'hFFFF, 1'b1, 16'hFFFF, 16'h906E, "CRC-16/X-25");
-        check(busy_cycles, 5 * 9 * 8, "crc_busy pin cycles");
+        check(busy_cycles, 5 * 9 * 4, "crc_busy pin cycles");
 
         // crc_done sticky flag + IRQ, cleared by reading STATUS.
         spi_read(A_STATUS, r);   // clear any pending sticky flags

@@ -2,7 +2,7 @@
 TOP      := tt_um_alexstevens_serialcrc
 RTL      := rtl/sync2.v rtl/spi_slave.v rtl/uart_tx.v rtl/uart_rx.v \
             rtl/crc16_engine.v rtl/regfile.v rtl/$(TOP).v
-TBS      := tb_crc16 tb_uart tb_top
+TBS      := tb_crc16 tb_uart tb_top tb_dualedge
 BUILD    := build
 NICE     ?= nice -n 15
 JOBS     ?= 4

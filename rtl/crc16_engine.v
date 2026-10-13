@@ -1,8 +1,11 @@
-// Programmable bit-serial CRC engine (Rocksoft model).
+// Programmable bit-serial CRC engine (Rocksoft model), dual-edge.
 // - poly in normal (MSB-first) form without the implicit x^WIDTH term
 // - refin: each input byte is bit-reversed before processing
 // - refout: the register is bit-reversed before the final XOR
-// Processes one bit per clock: a byte takes 8 cycles (busy high).
+// Processes TWO bits per clock using both clock edges: on every falling edge
+// crc_h captures one LFSR step of crc (bit sh[7]); on the next rising edge crc
+// takes a second step from crc_h (bit sh[6]). A byte takes 4 cycles (busy high).
+// Paths crc->crc_h (rise->fall) and crc_h->crc (fall->rise) are half-cycle paths.
 // `clear` loads the register with `init` (and cancels a byte in flight).
 `default_nettype none
 module crc16_engine #(
@@ -24,8 +27,9 @@ module crc16_engine #(
     output wire [WIDTH-1:0] result
 );
     reg [WIDTH-1:0] crc;
+    reg [WIDTH-1:0] crc_h;   // falling-edge half step
     reg [7:0]       sh;
-    reg [3:0]       cnt;
+    reg [2:0]       cnt;     // bit pairs left
 
     wire [7:0]       din_rev;
     wire [WIDTH-1:0] crc_rev;
@@ -39,28 +43,38 @@ module crc16_engine #(
         end
     endgenerate
 
-    assign busy = (cnt != 4'd0);
-    wire fb = crc[WIDTH-1] ^ sh[7];
+    assign busy = (cnt != 3'd0);
+
+    // One LFSR step of each register.
+    wire [WIDTH-1:0] step_lo = {crc[WIDTH-2:0], 1'b0} ^
+                               ((crc[WIDTH-1] ^ sh[7]) ? poly : {WIDTH{1'b0}});
+    wire [WIDTH-1:0] step_hi = {crc_h[WIDTH-2:0], 1'b0} ^
+                               ((crc_h[WIDTH-1] ^ sh[6]) ? poly : {WIDTH{1'b0}});
+
+    // No reset: crc_h is recomputed from crc on every falling edge and is only
+    // used while busy (which needs a start after reset). This keeps rst_n off
+    // the falling-edge flops, so there is no half-cycle reset recovery path.
+    always @(negedge clk) crc_h <= step_lo;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             crc  <= RESET_VAL;
             sh   <= 8'd0;
-            cnt  <= 4'd0;
+            cnt  <= 3'd0;
             done <= 1'b0;
         end else begin
             done <= 1'b0;
             if (clear) begin
                 crc <= init;
-                cnt <= 4'd0;
+                cnt <= 3'd0;
             end else if (busy) begin
-                crc  <= {crc[WIDTH-2:0], 1'b0} ^ (fb ? poly : {WIDTH{1'b0}});
-                sh   <= {sh[6:0], 1'b0};
-                cnt  <= cnt - 4'd1;
-                done <= (cnt == 4'd1);
+                crc  <= step_hi;
+                sh   <= {sh[5:0], 2'b00};
+                cnt  <= cnt - 3'd1;
+                done <= (cnt == 3'd1);
             end else if (start) begin
                 sh  <= refin ? din_rev : din;
-                cnt <= 4'd8;
+                cnt <= 3'd4;
             end
         end
     end

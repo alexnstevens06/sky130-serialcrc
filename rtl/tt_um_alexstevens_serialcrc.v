@@ -3,7 +3,7 @@
 // Copyright (c) 2026 Alex Stevens. SPDX-License-Identifier: MIT
 `default_nettype none
 module tt_um_alexstevens_serialcrc #(
-    parameter CLK_HZ = 10_000_000,
+    parameter CLK_HZ = 66_000_000,
     parameter BAUD   = 115_200
 ) (
     input  wire [7:0] ui_in,
