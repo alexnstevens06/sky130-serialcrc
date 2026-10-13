@@ -37,7 +37,7 @@ MISO = 0 when cs_n high.
                     reading STATUS), [4] crc_done (sticky, cleared by reading STATUS),
                     [5] frame_err (sticky, UART stop bit was low, cleared by reading STATUS)
 0x03 BAUD_LO    RW  divisor low byte  (clocks per bit = {BAUD_HI,BAUD_LO}+1); reset value
-0x04 BAUD_HI    RW  divisor high byte    gives 115200 baud at the parameter CLK_HZ=10_000_000 (div=86)
+0x04 BAUD_HI    RW  divisor high byte    gives 115200 baud at the parameter CLK_HZ (66_000_000 -> div=572; 10_000_000 -> div=86)
 0x05 UART_DATA  W: start TX of byte (ignored if tx_busy). R: pop RX byte (clears rx_valid)
 0x06 POLY_LO    RW  CRC polynomial (normal form, no x^16 term); reset 0x1021
 0x07 POLY_HI    RW
