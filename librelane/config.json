@@ -1,0 +1,35 @@
+{
+  "meta": { "version": 3, "flow": "Classic" },
+  "DESIGN_NAME": "tt_um_alexstevens_serialcrc",
+  "VERILOG_FILES": [
+    "dir::../rtl/sync2.v",
+    "dir::../rtl/spi_slave.v",
+    "dir::../rtl/uart_tx.v",
+    "dir::../rtl/uart_rx.v",
+    "dir::../rtl/crc16_engine.v",
+    "dir::../rtl/regfile.v",
+    "dir::../rtl/tt_um_alexstevens_serialcrc.v"
+  ],
+
+  "CLOCK_PORT": "clk",
+  "CLOCK_PERIOD": 100,
+
+  "FP_SIZING": "absolute",
+  "DIE_AREA": [0, 0, 334.88, 111.52],
+  "PL_TARGET_DENSITY_PCT": 55,
+
+  "RT_MAX_LAYER": "met4",
+  "PDN_MULTILAYER": false,
+  "PDN_VWIDTH": 2.0,
+  "PDN_VPITCH": 50.0,
+  "PDN_VOFFSET": 20.0,
+
+  "RUN_KLAYOUT_DRC": true,
+  "RUN_HEURISTIC_DIODE_INSERTION": true,
+
+  "ROUTING_CORES": 4,
+  "DRT_THREADS": 4,
+  "STA_THREADS": 4,
+  "KLAYOUT_DRC_THREADS": 4,
+  "KLAYOUT_XOR_THREADS": 4
+}
