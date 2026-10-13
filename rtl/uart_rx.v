@@ -3,6 +3,7 @@
 // - framing check: stop bit must be high, else frame_err pulses and the
 //   receiver waits for the line to return high (break) before re-arming.
 // rx must already be synchronized to clk.
+// The bit-timer terminal count is a registered flag (cz), not a 16-bit compare.
 `default_nettype none
 module uart_rx (
     input  wire        clk,
@@ -18,6 +19,10 @@ module uart_rx (
 
     reg [2:0]  state;
     reg [15:0] cnt;
+    reg        cz;       // cnt == 0, registered one cycle ahead
+    wire       div_z  = (div == 16'd0);
+    wire       divh_z = (div[15:1] == 15'd0);
+    wire       cnt_1  = (cnt == 16'd1);
     reg [2:0]  bitn;
     reg [7:0]  sh;
 
@@ -25,6 +30,7 @@ module uart_rx (
         if (!rst_n) begin
             state     <= S_IDLE;
             cnt       <= 16'd0;
+            cz        <= 1'b1;
             bitn      <= 3'd0;
             sh        <= 8'd0;
             data      <= 8'd0;
@@ -37,23 +43,26 @@ module uart_rx (
                 S_IDLE: if (!rx) begin
                     state <= S_START;
                     cnt   <= {1'b0, div[15:1]};
+                    cz    <= divh_z;
                 end
-                S_START: if (cnt != 16'd0) cnt <= cnt - 16'd1;
+                S_START: if (!cz) begin cnt <= cnt - 16'd1; cz <= cnt_1; end
                 else if (!rx) begin
                     state <= S_DATA;
                     cnt   <= div;
+                    cz    <= div_z;
                     bitn  <= 3'd0;
                 end else begin
                     state <= S_IDLE;     // glitch, not a real start bit
                 end
-                S_DATA: if (cnt != 16'd0) cnt <= cnt - 16'd1;
+                S_DATA: if (!cz) begin cnt <= cnt - 16'd1; cz <= cnt_1; end
                 else begin
                     sh   <= {rx, sh[7:1]};
                     cnt  <= div;
+                    cz    <= div_z;
                     bitn <= bitn + 3'd1;
                     if (bitn == 3'd7) state <= S_STOP;
                 end
-                S_STOP: if (cnt != 16'd0) cnt <= cnt - 16'd1;
+                S_STOP: if (!cz) begin cnt <= cnt - 16'd1; cz <= cnt_1; end
                 else if (rx) begin
                     valid <= 1'b1;
                     data  <= sh;

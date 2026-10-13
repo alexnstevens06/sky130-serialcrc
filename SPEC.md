@@ -45,7 +45,7 @@ MISO = 0 when cs_n high.
 0x09 INIT_HI    RW
 0x0A XOROUT_LO  RW  final XOR; reset 0x0000
 0x0B XOROUT_HI  RW
-0x0C CRC_DATA   W   feed one byte to the CRC (1 bit/clock, 8 clocks, crc_busy high)
+0x0C CRC_DATA   W   feed one byte to the CRC (2 bits/clock on both clock edges, 4 clocks, crc_busy high)
 0x0D CRC_CMD    W   bit0 = 1: load CRC register with INIT
 0x0E CRC_LO     RO  result low byte  (after refout + xorout)
 0x0F CRC_HI     RO  result high byte
@@ -59,10 +59,10 @@ CRC-16/MODBUS (0x8005, init 0xFFFF, refin, refout -> 0x4B37),
 CRC-16/XMODEM (0x1021, init 0 -> 0x31C3).
 If a CRC_DATA write arrives while busy it is ignored. If an autofeed byte and a CRC_DATA
 write arrive in the same cycle, the autofeed byte wins. (At any baud divisor a UART byte
-takes >= 10 clocks and the CRC needs 8, so autofeed never overruns the engine.)
+takes >= 10 clocks and the CRC needs 4, so autofeed never overruns the engine.)
 
 ## Module breakdown (rtl/)
 sync2.v, spi_slave.v, uart_tx.v, uart_rx.v (mid-bit sampling, false-start rejection,
-stop-bit check), crc16_engine.v (parameter WIDTH=16, bit-serial LFSR, runtime poly),
+stop-bit check), crc16_engine.v (parameter WIDTH=16, dual-edge 2-bit-per-clock LFSR, runtime poly),
 regfile.v, tt_um_alexstevens_serialcrc.v (top). Plain Verilog-2005 (synthesizable with
 yosys + verilator lint-clean with -Wall; no `initial` in RTL).
