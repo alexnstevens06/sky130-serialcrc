@@ -56,3 +56,27 @@ jobs:
         with:
           name: synth
           path: build/synth
+
+  formal:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: YosysHQ/setup-oss-cad-suite@v3
+      - name: SymbiYosys (CRC BMC, UART FSM, register file)
+        run: make formal NICE=
+
+  gls:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: YosysHQ/setup-oss-cad-suite@v3
+      - name: Generic-cell synthesis and Icarus gate-level sim
+        run: make gls NICE=
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gls
+          path: |
+            build/gls/tb_top.log
+            build/gls/yosys.log
+          if-no-files-found: ignore

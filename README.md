@@ -22,7 +22,7 @@ closes timing at **66 MHz** across all nine PVT/RC corners. DRC, LVS and antenna
 | Std-cell area | 0.0189 mm^2, 65.0% core utilization |
 | Worst setup / hold | +2.34 ns (half-cycle path, ss 100C 1.60V) / +0.038 ns |
 | Sign-off | DRC 0 (Magic + KLayout), LVS clean, 0 antenna violations |
-| Verification | 4 Verilog testbenches (5,962 checks) plus cocotb (SPI, UART baud edges, CRC-16 vs Python, reset), 95.7% line / 91.7% toggle coverage, gate-level sim at 30/50/70% duty, Verilator lint clean |
+| Verification | 4 Verilog testbenches (5,976 checks) plus cocotb (SPI, UART baud edges, CRC-16 vs Python, reset), SymbiYosys, generic-cell gate-level sim, 95.7% line / 90.8% toggle coverage, Verilator lint clean |
 
 ## What it does
 
@@ -42,7 +42,7 @@ variants, because the polynomial, init value, final XOR and input/output reflect
 - **`spi_slave`**: mode 0, oversampled by `clk` (f_sclk <= f_clk / 8). Each 16-bit frame is `{rw, addr[6:0]}`
   then data. Side effects only happen on the 16th bit, so raising CS early aborts cleanly.
 - **`regfile`**: control/status, sticky flags with read-snapshot clear, IRQ, GPIO.
-- **`uart_tx` / `uart_rx`**: 8N1. Each bit lasts divisor + 1 clocks. RX samples mid-bit, rejects false starts,
+- **`uart_tx` / `uart_rx`**: 8N1. Each bit lasts divisor + 1 clocks. RX samples the center of the bit for even and odd divisors, rejects false starts,
   and detects framing errors with break recovery. The bit-timer terminal count is a registered flag, so the
   16-bit compare is off the critical path.
 - **`crc16_engine`**: programmable LFSR, two steps per clock using both edges (below).
@@ -116,22 +116,30 @@ The worst half-cycle path at the slow corner leaves +2.34 ns on top of the 5% ma
 | Testbench | Scope | Checks |
 |-----------|-------|--------|
 | `tb_crc16` | 7 catalogue CRC-16 variants on `"123456789"`, 250 random poly/init/xorout/reflection/length cases against a byte-wise reference model, busy/done/clear/reset behavior | 4,439 |
-| `tb_uart` | TX->RX loopback of all 256 bytes at divisors 4 and 0, divisors up to 0xFFFF, exact bit timing, start-while-busy, false-start glitch, framing error and break recovery, +/-3% baud mismatch, back-to-back frames | 1,201 |
-| `tb_top` | Chip pins only: SPI master model at the minimum 8:1 clock ratio, reset values and readback of every register, random register traffic against a shadow model, aborted SPI transfers, CRC presets over SPI, IRQs, overrun (including mid-read), framing error, UART->CRC streaming, 1 clock/bit RX, UART byte that arrives during a UART_DATA read | 183 |
+| `tb_uart` | TX->RX loopback of all 256 bytes at divisors 4 and 0, divisors up to 0xFFFF, exact bit timing, start-while-busy, false-start glitch, framing error and break recovery, +/-3% baud mismatch, back-to-back frames, center sample point for even and odd divisors | 1,213 |
+| `tb_top` | Chip pins only: SPI master model at the minimum 8:1 clock ratio, reset values and readback of every register, random register traffic against a shadow model, aborted SPI transfers, CRC presets over SPI, IRQs, overrun (including mid-read), framing error, UART->CRC streaming, 1 clock/bit RX, UART byte that arrives during a UART_DATA read, SCLK high or low at reset release with CS low | 185 |
 | `tb_dualedge` | CRC presets and UART loopback at 30%, 50% and 70% clock duty cycle; checks that `crc_h` changes only on falling edges and `crc` only on rising edges; 4 clocks per byte | 139 |
 
 - **Coverage.** Verilator line/branch and toggle coverage over all testbenches, `rtl/` only, from CI
-  (Verilator 5.020): **95.7% line, 91.7% toggle**. `crc16_engine`, `regfile`, `spi_slave`, `sync2` and
+  (Verilator 5.020): **95.7% line, 90.8% toggle**. `crc16_engine`, `regfile`, `spi_slave`, `sync2` and
   `uart_tx` reach 100% line coverage. The gaps are in `uart_rx` (unreachable `default:` arm, unit-level-only
   paths) and toggles on unused TinyTapeout inputs and the upper baud-counter bits.
 - **Cocotb (Icarus).** `tb/cocotb/` drives the chip pins and the UART, CRC, and register-file
   modules directly. It covers SPI read/write and aborted frames, UART framing at 1 clock/bit
   through the wide divisors, +/-3% baud tolerance, CRC-16 against an independent Python model
   (catalogue values plus random polynomials), and reset in the middle of TX, RX, and SPI.
-- **Gate-level simulation.** `scripts/gls.sh` runs `tb_top` on the routed netlist with the sky130 functional
-  cell models at 50%, 30% and 70% clock duty. The signed-off run was 178 checks, before the
-  divisor-0 and mid-read fixes in this tree (the testbench is now 183 checks). This is functional,
-  unit-delay simulation; timing is signed off by static timing analysis.
+- **Formal.** SymbiYosys checks three properties. CRC-16 matches a byte-wise Rocksoft model for every
+  input sequence in a 16-step BMC bound (`done` is reachable at step 14). The UART RX state register
+  stays inside `IDLE`..`BREAK` (k-induction), so the `default` arm is unreachable. The register file's
+  read/write storage matches an independent shadow, including the read port and the TX/CRC strobes
+  (k-induction). `make formal`.
+- **Generic-cell gate-level simulation.** `make gls` synthesizes with Yosys to internal gates
+  (`$_AND_`, `$_DFF_*`, ...) and runs `tb_top` on that netlist with Icarus and `simcells.v`. No PDK
+  and no place-and-route. The clock and baud parameters match `tb_top` (reset divisor 86).
+- **Routed gate-level simulation.** `scripts/gls.sh` runs `tb_top` on the routed netlist with the sky130
+  functional cell models at 50%, 30% and 70% clock duty. The signed-off run was 178 checks, before the
+  divisor-0 and mid-read fixes (the testbench is now 185 checks). This is functional, unit-delay
+  simulation; timing is signed off by static timing analysis.
 - **Lint.** `verilator --lint-only -Wall` gives 0 warnings (also run in CI).
 - **Mutation check** (on the original single-edge RTL). Of five hand-injected bugs, all four that change
   behavior make at least one testbench fail. The fifth is logically equivalent.
@@ -185,14 +193,18 @@ and fall->rise (F->R) register paths.
 ## How to build and run
 
 Requirements: `iverilog` (>= 12), `verilator` (>= 5.020), `yosys`, `python3`, `make`, and cocotb
-(`pip install -r tb/cocotb/requirements.txt`). For hardening you also need Docker and the sky130A PDK,
-installed with [ciel](https://github.com/fossi-foundation/ciel).
+(`pip install -r tb/cocotb/requirements.txt`). `make formal` needs SymbiYosys (`sby`) and a bitvector
+solver (`bitwuzla`). `make gls` needs Yosys's `simcells.v` (`yosys-config --datdir`). Both come with
+[OSS CAD Suite](https://github.com/YosysHQ/oss-cad-suite-build). For hardening you also need Docker
+and the sky130A PDK, installed with [ciel](https://github.com/fossi-foundation/ciel).
 
 ```sh
 make lint        # verilator --lint-only -Wall
 make test        # Icarus testbenches + cocotb (SPI, UART, CRC, reset)
 make coverage    # Verilog testbenches under Verilator with line+toggle coverage
 make synth       # Yosys -> sky130_fd_sc_hd, area report in build/synth/
+make formal      # SymbiYosys: CRC BMC, UART FSM, register-file prove
+make gls         # generic-cell netlist + Icarus tb_top (no PDK)
 
 scripts/harden.sh my_run                  # LibreLane in Docker (nice, 4 CPUs) -> librelane/runs/my_run/
 scripts/gls.sh librelane/runs/my_run      # gate-level sim of the routed netlist at 30/50/70% duty
@@ -206,9 +218,10 @@ scripts/gls.sh librelane/runs/my_run      # gate-level sim of the routed netlist
 ```
 rtl/        synthesizable Verilog-2005 (7 modules)
 tb/         Verilog testbenches and cocotb suites
+formal/     SymbiYosys properties (CRC, UART FSM, register file)
 librelane/  LibreLane config and SDC constraints (run outputs are gitignored)
-synth/      Yosys script for sky130_fd_sc_hd
-scripts/    hardening, gate-level sim, STA, coverage/synthesis summaries, diagrams
+synth/      Yosys scripts (sky130 liberty map, and generic cells for GLS)
+scripts/    hardening, routed gate-level sim, STA, coverage/synthesis summaries, diagrams
 docs/       PnR results, TinyTapeout datasheet page, images
 info.yaml   TinyTapeout project metadata (1x2 tile)
 ```
@@ -216,7 +229,8 @@ info.yaml   TinyTapeout project metadata (1x2 tile)
 ## CI
 
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs lint, the Verilog
-testbenches, the cocotb suites (Icarus), and coverage, plus a Yosys synthesis job that posts an area summary.
+testbenches, the cocotb suites (Icarus), and coverage, plus a Yosys synthesis job that posts an area
+summary. Two more jobs run the SymbiYosys proofs and the generic-cell gate-level simulation.
 
 ## License
 

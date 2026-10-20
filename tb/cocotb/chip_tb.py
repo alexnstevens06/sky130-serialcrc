@@ -367,3 +367,33 @@ async def test_reset_during_activity(dut):
         await FallingEdge(dut.clk)
     await chip.expect(A_GPIO, 0x00, "GPIO is the reset value after a mid-write reset")
     chip.sb.note()
+
+
+@cocotb.test(timeout_time=20, timeout_unit="ms")
+async def test_sclk_level_at_reset(dut):
+    """SCLK high while CS is low at reset release does not shift a SPI bit."""
+    chip = fresh(dut)
+    await chip.boot()
+
+    async def release(ui):
+        await FallingEdge(dut.clk)
+        dut.rst_n.value = 0
+        chip.ui = ui
+        chip.drive()
+        for _ in range(4):
+            await FallingEdge(dut.clk)
+        dut.rst_n.value = 1
+        for _ in range(8):
+            await FallingEdge(dut.clk)
+
+    await release(0x03)  # uart idle, SCLK high, CS low
+    chip.setb(1, 0)
+    for _ in range(chip.half):
+        await FallingEdge(dut.clk)
+    await chip.write(A_GPIO, 0xA5)
+    await chip.expect(A_GPIO, 0xA5, "SCLK high at reset release")
+
+    await release(0x01)  # uart idle, SCLK low, CS low
+    await chip.write(A_GPIO, 0x5A)
+    await chip.expect(A_GPIO, 0x5A, "SCLK low at reset release")
+    chip.sb.note()

@@ -21,8 +21,14 @@ module uart_rx (
     reg [15:0] cnt;
     reg        cz;       // cnt == 0, registered one cycle ahead
     wire       div_z  = (div == 16'd0);
-    wire       divh_z = (div[15:1] == 15'd0);
     wire       cnt_1  = (cnt == 16'd1);
+    // Center of a (div + 1)-cycle bit, 0-based from the cycle the bit is
+    // first seen, is (div + 1) >> 1. S_START samples on the cycle after cz
+    // is set, so the counter loads one less: (div - 1) >> 1. div == 0 is a
+    // one-cycle start bit and does not use this. Loading div >> 1 instead
+    // waits one cycle past the center when div is even.
+    wire [15:0] start_cnt = (div - 16'd1) >> 1;
+    wire        start_z   = (start_cnt == 16'd0);
     reg [2:0]  bitn;
     reg [7:0]  sh;
 
@@ -50,8 +56,8 @@ module uart_rx (
                         bitn  <= 3'd0;
                     end else begin
                         state <= S_START;
-                        cnt   <= {1'b0, div[15:1]};
-                        cz    <= divh_z;
+                        cnt   <= start_cnt;
+                        cz    <= start_z;
                     end
                 end
                 S_START: if (!cz) begin cnt <= cnt - 16'd1; cz <= cnt_1; end
@@ -85,5 +91,12 @@ module uart_rx (
             endcase
         end
     end
+
+    // The only encodings this FSM writes are IDLE..BREAK. A state above
+    // S_BREAK is the default arm. Posedge-only so the check is not an
+    // async-reset assertion.
+`ifdef FORMAL
+    always @(posedge clk) if (rst_n) assert(state <= S_BREAK);
+`endif
 endmodule
 `default_nettype wire

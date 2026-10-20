@@ -405,6 +405,34 @@ module tb_top;
         crc_expect(16'h4B37, "autofeed disabled");
         spi_write(A_CTRL, 8'h00);
 
+        // SCLK high and CS low at reset release must not consume a SPI bit.
+        // SCLK low in that state is only a falling edge.
+        @(negedge clk) begin
+            rst_n    = 1'b0;
+            ui_in[0] = 1'b1;
+            ui_in[1] = 1'b1;
+            ui_in[2] = 1'b0;
+            ui_in[3] = 1'b0;
+        end
+        repeat (4) @(negedge clk);
+        rst_n = 1'b1;
+        repeat (8) @(negedge clk);
+        @(negedge clk) ui_in[1] = 1'b0;
+        repeat (H) @(negedge clk);
+        spi_write(A_GPIO, 8'hA5);
+        expect_reg(A_GPIO, 8'hA5, "sclk high at reset");
+        @(negedge clk) begin
+            rst_n    = 1'b0;
+            ui_in[1] = 1'b0;
+            ui_in[2] = 1'b0;
+            ui_in[3] = 1'b0;
+        end
+        repeat (4) @(negedge clk);
+        rst_n = 1'b1;
+        repeat (8) @(negedge clk);
+        spi_write(A_GPIO, 8'h5A);
+        expect_reg(A_GPIO, 8'h5A, "sclk low at reset");
+
         // --- asynchronous reset restores defaults ---
         spi_write(A_GPIO_OE, 8'hFF);
         @(negedge clk) rst_n = 1'b0;

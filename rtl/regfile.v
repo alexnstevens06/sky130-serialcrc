@@ -170,5 +170,96 @@ module regfile #(
             if (crc_done_pulse) crc_done  <= 1'b1;
         end
     end
+
+    // Shadow of the RW registers. Proved against the real registers and the
+    // read port for every address except STATUS and UART_DATA, which are
+    // event state rather than storage.
+`ifdef FORMAL
+    reg [4:0]  s_ctrl;
+    reg [15:0] s_baud, s_poly, s_init, s_xor;
+    reg [7:0]  s_gpio, s_oe;
+    reg [7:0]  exp_rd;
+
+    always @* if ($initstate) assume(!rst_n);
+
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            s_ctrl <= 5'd0;
+            s_baud <= BAUD_RESET;
+            s_poly <= 16'h1021;
+            s_init <= 16'hFFFF;
+            s_xor  <= 16'h0000;
+            s_gpio <= 8'h00;
+            s_oe   <= 8'h00;
+        end else if (wr_en) begin
+            case (addr)
+                A_CTRL:    s_ctrl       <= wr_data[4:0];
+                A_BAUD_LO: s_baud[7:0]  <= wr_data;
+                A_BAUD_HI: s_baud[15:8] <= wr_data;
+                A_POLY_LO: s_poly[7:0]  <= wr_data;
+                A_POLY_HI: s_poly[15:8] <= wr_data;
+                A_INIT_LO: s_init[7:0]  <= wr_data;
+                A_INIT_HI: s_init[15:8] <= wr_data;
+                A_XOR_LO:  s_xor[7:0]   <= wr_data;
+                A_XOR_HI:  s_xor[15:8]  <= wr_data;
+                A_GPIO:    s_gpio       <= wr_data;
+                A_GPIO_OE: s_oe         <= wr_data;
+                default: ;
+            endcase
+        end
+    end
+
+    always @* begin
+        case (addr)
+            A_ID:      exp_rd = CHIP_ID;
+            A_CTRL:    exp_rd = {3'b000, s_ctrl};
+            A_BAUD_LO: exp_rd = s_baud[7:0];
+            A_BAUD_HI: exp_rd = s_baud[15:8];
+            A_POLY_LO: exp_rd = s_poly[7:0];
+            A_POLY_HI: exp_rd = s_poly[15:8];
+            A_INIT_LO: exp_rd = s_init[7:0];
+            A_INIT_HI: exp_rd = s_init[15:8];
+            A_XOR_LO:  exp_rd = s_xor[7:0];
+            A_XOR_HI:  exp_rd = s_xor[15:8];
+            A_CRC_LO:  exp_rd = crc_result[7:0];
+            A_CRC_HI:  exp_rd = crc_result[15:8];
+            A_GPIO:    exp_rd = s_gpio;
+            A_GPIO_OE: exp_rd = s_oe;
+            default:   exp_rd = 8'h00;
+        endcase
+    end
+
+    wire exp_autofeed = s_ctrl[2] && rx_strobe;
+    wire check_rd = !(addr == A_STATUS || addr == A_UART);
+
+    always @(posedge clk) begin
+        if (rst_n) begin
+            assert(ctrl == s_ctrl);
+            assert(baud == s_baud);
+            assert(poly == s_poly);
+            assert(init == s_init);
+            assert(xorout == s_xor);
+            assert(gpio_out == s_gpio);
+            assert(gpio_oe == s_oe);
+            assert(baud_div == s_baud);
+            assert(crc_poly == s_poly);
+            assert(crc_init == s_init);
+            assert(crc_xorout == s_xor);
+            assert(crc_refin == s_ctrl[0]);
+            assert(crc_refout == s_ctrl[1]);
+            assert(tx_data == wr_data);
+            assert(tx_start == (wr_en && addr == A_UART && !tx_busy));
+            assert(crc_clear == (wr_en && addr == A_CRC_CMD && wr_data[0]));
+            assert(crc_start == (!crc_busy && (exp_autofeed || (wr_en && addr == A_CRC_DAT))));
+            assert(crc_din == (exp_autofeed ? rx_byte : wr_data));
+            if (!s_ctrl[3] && !s_ctrl[4])
+                assert(!irq);
+            if (s_ctrl[3] && rx_valid)
+                assert(irq);
+            if (check_rd)
+                assert(rd_data == exp_rd);
+        end
+    end
+`endif
 endmodule
 `default_nettype wire

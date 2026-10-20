@@ -1,0 +1,16 @@
+[options]
+mode prove
+depth 2
+timeout 120
+
+[engines]
+smtbmc bitwuzla
+
+[script]
+read -formal uart_rx_check.v
+read -formal uart_rx.v
+prep -top uart_rx_formal
+
+[files]
+formal/uart_rx_check.v
+rtl/uart_rx.v

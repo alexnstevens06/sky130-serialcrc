@@ -1,0 +1,14 @@
+[options]
+mode prove
+depth 2
+timeout 120
+
+[engines]
+smtbmc bitwuzla
+
+[script]
+read -formal regfile.v
+prep -top regfile
+
+[files]
+rtl/regfile.v

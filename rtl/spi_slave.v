@@ -32,7 +32,10 @@ module spi_slave (
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            sclk_q  <= 1'b0;
+            // High so an SCLK that is already high when reset releases is
+            // not a rising edge. A low SCLK is a falling edge at bitcnt 0,
+            // which does not shift a bit.
+            sclk_q  <= 1'b1;
             bitcnt  <= 4'd0;
             sh      <= 7'd0;
             rw      <= 1'b0;
