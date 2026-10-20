@@ -52,6 +52,8 @@ module tb_top;
 
     // ---------------- SPI master (mode 0) ----------------
     integer miso_hi_idle = 0;
+    integer inject_mid = 0;
+    reg [7:0] inject_byte = 8'h00;
     always @(negedge clk) if (rst_n && ui_in[2] && uo_out[1]) miso_hi_idle = miso_hi_idle + 1;
 
     task spi_xfer(input [7:0] b0, input [7:0] b1, input integer nbits, output [7:0] rd);
@@ -62,6 +64,12 @@ module tb_top;
             @(negedge clk) ui_in[2] = 1'b0;
             repeat (H) @(negedge clk);
             for (k = 0; k < nbits; k = k + 1) begin
+                // Stall SCLK after the address byte so a UART frame can land
+                // after the read has captured UART_DATA and before it completes.
+                if (k == 8 && inject_mid) begin
+                    uart_send(inject_byte, 1'b1);
+                    repeat (8) @(negedge clk);
+                end
                 b = (k < 8) ? b0[7-k] : b1[15-k];
                 ui_in[3] = b;                         // MOSI changes while SCLK low
                 repeat (H) @(negedge clk);
@@ -337,6 +345,23 @@ module tb_top;
         expect_reg(A_STATUS, 8'h0A, "STATUS overrun+valid");
         expect_reg(A_STATUS, 8'h02, "overrun cleared by read");
         expect_reg(A_UART,   8'h02, "newest byte kept");
+        // div == 0 (1 clock/bit) through the pins, including the synchronizer.
+        spi_write(A_BAUD_LO, 8'd0);
+        bitclk = 1;
+        uart_send(8'hA5, 1'b1);
+        expect_reg(A_UART, 8'hA5, "rx div 0");
+        // Byte arrives after UART_DATA was captured but before the read ends.
+        uart_send(8'h11, 1'b1);
+        inject_byte = 8'h22;
+        inject_mid = 1;
+        spi_read(A_UART, r);
+        inject_mid = 0;
+        check(r, 8'h11, "pop returns captured byte");
+        check(uo_out[5], 1'b1, "newer byte stays pending");
+        expect_reg(A_STATUS, 8'h02, "mid-read byte is not overrun");
+        expect_reg(A_UART, 8'h22, "newer byte readable");
+        spi_write(A_BAUD_LO, 8'd15);
+        bitclk = 16;
         // Overrun that happens *during* a STATUS read (after the value was
         // captured, before the read completes) must not be lost.
         uart_send(8'h03, 1'b1);

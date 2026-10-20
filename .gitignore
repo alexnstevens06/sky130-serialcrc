@@ -1,5 +1,7 @@
 build/
 obj_dir/
+.venv/
+sim_build/
 *.vcd
 *.fst
 *.dat

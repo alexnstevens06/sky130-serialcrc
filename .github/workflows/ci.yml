@@ -9,16 +9,19 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install Icarus Verilog + Verilator
+      - name: Install Icarus Verilog, Verilator, and cocotb
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends iverilog verilator make python3
+          sudo apt-get install -y --no-install-recommends iverilog verilator make python3 python3-venv python3-pip
+          python3 -m venv .venv
+          .venv/bin/pip install -r tb/cocotb/requirements.txt
           iverilog -V 2>&1 | head -n 1
           verilator --version
+          .venv/bin/python -c 'import cocotb; print("cocotb", cocotb.__version__)'
       - name: Lint (verilator --lint-only -Wall)
         run: make lint
-      - name: Self-checking testbenches (Icarus)
-        run: make test
+      - name: Self-checking testbenches (Icarus + cocotb)
+        run: make test PYTHON=.venv/bin/python
       - name: Coverage (Verilator)
         run: make coverage JOBS=2
       - name: Coverage summary

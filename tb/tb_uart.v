@@ -96,8 +96,12 @@ module tb_uart;
         repeat (2) @(negedge clk);
         check(tx, 1, "idle high");
 
-        // All 256 byte values at a fast divisor.
+        // All 256 byte values at a fast divisor, and at 1 clock/bit.
+        // div == 0 used to sample the start bit one cycle late.
         for (i = 0; i < 256; i = i + 1) loop_byte(i[7:0]);
+        div = 16'd0;
+        for (i = 0; i < 256; i = i + 1) loop_byte(i[7:0]);
+        div = 16'd4;
 
         // Several divisors, edge patterns + random bytes.
         for (d = 0; d < 4; d = d + 1) begin

@@ -30,8 +30,10 @@ else
 LIB ?= $(HOME_LIB)
 endif
 
-.PHONY: all lint test coverage synth fetch-lib clean
+.PHONY: all lint test test-icarus test-cocotb coverage synth fetch-lib clean
 all: lint test synth
+
+test: test-icarus test-cocotb
 
 lint:
 	$(NICE) $(VERILATOR) --lint-only -Wall --top-module $(TOP) $(RTL)
@@ -41,13 +43,17 @@ lint:
 $(BUILD)/sim/%.vvp: tb/%.v $(RTL) | $(BUILD)/sim
 	$(IVERILOG) -g2005 -Wall -Wno-timescale -o $@ -s $* $< $(RTL)
 
-test: $(addprefix $(BUILD)/sim/,$(addsuffix .vvp,$(TBS)))
+test-icarus: $(addprefix $(BUILD)/sim/,$(addsuffix .vvp,$(TBS)))
 	@fail=0; for t in $(TBS); do \
 	  $(NICE) $(VVP) -n $(BUILD)/sim/$$t.vvp > $(BUILD)/sim/$$t.log 2>&1; \
 	  if grep -q '^PASS' $(BUILD)/sim/$$t.log; then \
 	    echo "[PASS] $$t: $$(grep '^PASS' $(BUILD)/sim/$$t.log)"; \
 	  else echo "[FAIL] $$t"; tail -n 30 $(BUILD)/sim/$$t.log; fail=1; fi; \
 	done; exit $$fail
+
+# Cocotb suites (Icarus). Needs: pip install -r tb/cocotb/requirements.txt
+test-cocotb:
+	$(PYTHON) tb/cocotb/run.py
 
 # ---- coverage (Verilator line + toggle + branch) ----
 coverage: | $(BUILD)/coverage
