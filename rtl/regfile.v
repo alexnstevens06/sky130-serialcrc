@@ -51,6 +51,7 @@ module regfile #(
     reg [7:0]  rx_data;
     reg        rx_overrun, frame_err, crc_done;
     reg [2:0]  status_snap;   // sticky STATUS bits [5:3] captured when a read starts
+    reg        uart_pop_arm;  // UART_DATA read captured a pending byte at rd_req
 
     wire [7:0] status = {2'b00, frame_err, crc_done, rx_overrun,
                          crc_busy, rx_valid, tx_busy};
@@ -98,6 +99,9 @@ module regfile #(
 
     wire rd_status_done = rd_done && addr == A_STATUS;
     wire rd_uart_done   = rd_done && addr == A_UART;
+    // An in-flight UART_DATA read has already captured the current byte, so a
+    // newer byte is not an overrun and must not be popped by this read.
+    wire pop_captures   = uart_pop_arm || (rd_req && addr == A_UART && rx_valid);
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -112,8 +116,9 @@ module regfile #(
             rx_valid    <= 1'b0;
             rx_overrun  <= 1'b0;
             frame_err   <= 1'b0;
-            crc_done    <= 1'b0;
-            status_snap <= 3'b000;
+            crc_done     <= 1'b0;
+            status_snap  <= 3'b000;
+            uart_pop_arm <= 1'b0;
         end else begin
             if (wr_en) begin
                 case (addr)
@@ -141,13 +146,25 @@ module regfile #(
                 if (status_snap[1]) crc_done   <= 1'b0;
                 if (status_snap[2]) frame_err  <= 1'b0;
             end
-            if (rd_uart_done) rx_valid <= 1'b0;
+
+            if (rd_uart_done)
+                uart_pop_arm <= 1'b0;
+            else if (rx_strobe)
+                uart_pop_arm <= 1'b0;
+            else if (rd_req && addr == A_UART)
+                uart_pop_arm <= rx_valid;
+
+            // Pop only the byte this read captured. A strobe in the same
+            // cycle replaces it and must keep rx_valid set (set wins below).
+            if (rd_uart_done && uart_pop_arm && !rx_strobe)
+                rx_valid <= 1'b0;
 
             // Events (set has priority over clear).
             if (rx_strobe) begin
                 rx_data  <= rx_byte;
                 rx_valid <= 1'b1;
-                if (rx_valid && !rd_uart_done) rx_overrun <= 1'b1;
+                if (rx_valid && !pop_captures && !rd_uart_done)
+                    rx_overrun <= 1'b1;
             end
             if (rx_frame_err)   frame_err <= 1'b1;
             if (crc_done_pulse) crc_done  <= 1'b1;

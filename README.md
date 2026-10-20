@@ -22,7 +22,7 @@ closes timing at **66 MHz** across all nine PVT/RC corners. DRC, LVS and antenna
 | Std-cell area | 0.0189 mm^2, 65.0% core utilization |
 | Worst setup / hold | +2.34 ns (half-cycle path, ss 100C 1.60V) / +0.038 ns |
 | Sign-off | DRC 0 (Magic + KLayout), LVS clean, 0 antenna violations |
-| Verification | 4 self-checking testbenches (5,445 checks), 96.0% line / 91.4% toggle coverage, gate-level sim at 30/50/70% duty, Verilator lint clean |
+| Verification | 4 Verilog testbenches (5,962 checks) plus cocotb (SPI, UART baud edges, CRC-16 vs Python, reset), 95.7% line / 91.7% toggle coverage, gate-level sim at 30/50/70% duty, Verilator lint clean |
 
 ## What it does
 
@@ -73,8 +73,8 @@ variants, because the polynomial, init value, final XOR and input/output reflect
 | 0x00 | ID | R | 0xA5 | Chip ID |
 | 0x01 | CTRL | RW | 0x00 | [0] refin, [1] refout, [2] rx_autofeed, [3] irq_rx_en, [4] irq_crc_done_en |
 | 0x02 | STATUS | R | 0x00 | [0] tx_busy, [1] rx_valid, [2] crc_busy, [3] rx_overrun\*, [4] crc_done\*, [5] frame_err\* |
-| 0x03/0x04 | BAUD_LO/HI | RW | 572 | Clocks per bit minus 1 (572 gives 115200 baud at 66 MHz) |
-| 0x05 | UART_DATA | RW | - | Write: transmit (ignored while busy). Read: pop the RX byte |
+| 0x03/0x04 | BAUD_LO/HI | RW | 572 | Clocks per bit minus 1, including 0 (572 is 115200 baud at 66 MHz) |
+| 0x05 | UART_DATA | RW | - | Write: transmit (ignored while busy). Read: pop the RX byte. A byte that arrives mid-read stays pending |
 | 0x06/0x07 | POLY_LO/HI | RW | 0x1021 | CRC polynomial (normal form) |
 | 0x08/0x09 | INIT_LO/HI | RW | 0xFFFF | CRC initial value |
 | 0x0A/0x0B | XOROUT_LO/HI | RW | 0x0000 | CRC final XOR |
@@ -116,16 +116,21 @@ The worst half-cycle path at the slow corner leaves +2.34 ns on top of the 5% ma
 | Testbench | Scope | Checks |
 |-----------|-------|--------|
 | `tb_crc16` | 7 catalogue CRC-16 variants on `"123456789"`, 250 random poly/init/xorout/reflection/length cases against a byte-wise reference model, busy/done/clear/reset behavior | 4,439 |
-| `tb_uart` | TX->RX loopback of all 256 bytes, divisors 4 to 0xFFFF, exact bit timing, start-while-busy, false-start glitch, framing error and break recovery, +/-3% baud mismatch, back-to-back frames | 689 |
-| `tb_top` | Chip pins only: SPI master model at the minimum 8:1 clock ratio, reset values and readback of every register, random register traffic against a shadow model, aborted SPI transfers, CRC presets over SPI, IRQs, overrun (including mid-read), framing error, UART->CRC streaming | 178 |
+| `tb_uart` | TX->RX loopback of all 256 bytes at divisors 4 and 0, divisors up to 0xFFFF, exact bit timing, start-while-busy, false-start glitch, framing error and break recovery, +/-3% baud mismatch, back-to-back frames | 1,201 |
+| `tb_top` | Chip pins only: SPI master model at the minimum 8:1 clock ratio, reset values and readback of every register, random register traffic against a shadow model, aborted SPI transfers, CRC presets over SPI, IRQs, overrun (including mid-read), framing error, UART->CRC streaming, 1 clock/bit RX, UART byte that arrives during a UART_DATA read | 183 |
 | `tb_dualedge` | CRC presets and UART loopback at 30%, 50% and 70% clock duty cycle; checks that `crc_h` changes only on falling edges and `crc` only on rising edges; 4 clocks per byte | 139 |
 
 - **Coverage.** Verilator line/branch and toggle coverage over all testbenches, `rtl/` only, from CI
-  (Verilator 5.020): **96.0% line, 91.4% toggle**. `crc16_engine`, `regfile`, `spi_slave`, `sync2` and
+  (Verilator 5.020): **95.7% line, 91.7% toggle**. `crc16_engine`, `regfile`, `spi_slave`, `sync2` and
   `uart_tx` reach 100% line coverage. The gaps are in `uart_rx` (unreachable `default:` arm, unit-level-only
   paths) and toggles on unused TinyTapeout inputs and the upper baud-counter bits.
+- **Cocotb (Icarus).** `tb/cocotb/` drives the chip pins and the UART, CRC, and register-file
+  modules directly. It covers SPI read/write and aborted frames, UART framing at 1 clock/bit
+  through the wide divisors, +/-3% baud tolerance, CRC-16 against an independent Python model
+  (catalogue values plus random polynomials), and reset in the middle of TX, RX, and SPI.
 - **Gate-level simulation.** `scripts/gls.sh` runs `tb_top` on the routed netlist with the sky130 functional
-  cell models at 50%, 30% and 70% clock duty. All 178 checks pass at each duty. This is functional,
+  cell models at 50%, 30% and 70% clock duty. The signed-off run was 178 checks, before the
+  divisor-0 and mid-read fixes in this tree (the testbench is now 183 checks). This is functional,
   unit-delay simulation; timing is signed off by static timing analysis.
 - **Lint.** `verilator --lint-only -Wall` gives 0 warnings (also run in CI).
 - **Mutation check** (on the original single-edge RTL). Of five hand-injected bugs, all four that change
@@ -179,13 +184,14 @@ and fall->rise (F->R) register paths.
 
 ## How to build and run
 
-Requirements: `iverilog` (>= 12), `verilator` (>= 5.020), `yosys`, `python3`, `make`. For hardening you also
-need Docker and the sky130A PDK, installed with [ciel](https://github.com/fossi-foundation/ciel).
+Requirements: `iverilog` (>= 12), `verilator` (>= 5.020), `yosys`, `python3`, `make`, and cocotb
+(`pip install -r tb/cocotb/requirements.txt`). For hardening you also need Docker and the sky130A PDK,
+installed with [ciel](https://github.com/fossi-foundation/ciel).
 
 ```sh
 make lint        # verilator --lint-only -Wall
-make test        # 4 self-checking testbenches under Icarus Verilog
-make coverage    # same testbenches under Verilator with line+toggle coverage
+make test        # Icarus testbenches + cocotb (SPI, UART, CRC, reset)
+make coverage    # Verilog testbenches under Verilator with line+toggle coverage
 make synth       # Yosys -> sky130_fd_sc_hd, area report in build/synth/
 
 scripts/harden.sh my_run                  # LibreLane in Docker (nice, 4 CPUs) -> librelane/runs/my_run/
@@ -199,7 +205,7 @@ scripts/gls.sh librelane/runs/my_run      # gate-level sim of the routed netlist
 
 ```
 rtl/        synthesizable Verilog-2005 (7 modules)
-tb/         self-checking testbenches
+tb/         Verilog testbenches and cocotb suites
 librelane/  LibreLane config and SDC constraints (run outputs are gitignored)
 synth/      Yosys script for sky130_fd_sc_hd
 scripts/    hardening, gate-level sim, STA, coverage/synthesis summaries, diagrams
@@ -209,8 +215,8 @@ info.yaml   TinyTapeout project metadata (1x2 tile)
 
 ## CI
 
-GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs lint, all testbenches and
-coverage (Icarus + Verilator), plus a Yosys synthesis job that posts an area summary.
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs lint, the Verilog
+testbenches, the cocotb suites (Icarus), and coverage, plus a Yosys synthesis job that posts an area summary.
 
 ## License
 

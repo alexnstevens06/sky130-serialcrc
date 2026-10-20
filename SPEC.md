@@ -25,7 +25,11 @@ drives MISO with the register value during byte1, MSB first, bit changes after f
 SCLK edge (first bit valid as soon as the 8th SCLK rising edge of byte0 has been seen and
 then the falling edge occurs). Register reads that have side effects (UART_DATA pop, STATUS sticky-bit clear)
 take effect once, when the 16th bit of the read completes; a sticky bit is
-only cleared if it was set in the value that was shifted out. Deasserting cs_n mid-transaction aborts it with no effect.
+only cleared if it was set in the value that was shifted out. A UART_DATA read
+captures its byte when the address phase completes. A UART byte that arrives
+before the 16th bit was not that captured value: it stays in UART_DATA with
+rx_valid set, and it is not an overrun. Overrun means an unread byte was
+overwritten by one that no in-flight read will return. Deasserting cs_n mid-transaction aborts it with no effect.
 MISO = 0 when cs_n high.
 
 ## Register map (8-bit)
@@ -36,7 +40,7 @@ MISO = 0 when cs_n high.
 0x02 STATUS     RO  [0] tx_busy, [1] rx_valid, [2] crc_busy, [3] rx_overrun (sticky, cleared by
                     reading STATUS), [4] crc_done (sticky, cleared by reading STATUS),
                     [5] frame_err (sticky, UART stop bit was low, cleared by reading STATUS)
-0x03 BAUD_LO    RW  divisor low byte  (clocks per bit = {BAUD_HI,BAUD_LO}+1); reset value
+0x03 BAUD_LO    RW  divisor low byte  (clocks per bit = {BAUD_HI,BAUD_LO}+1, so 0 is 1 clock/bit); reset value
 0x04 BAUD_HI    RW  divisor high byte    gives 115200 baud at the parameter CLK_HZ (66_000_000 -> div=572; 10_000_000 -> div=86)
 0x05 UART_DATA  W: start TX of byte (ignored if tx_busy). R: pop RX byte (clears rx_valid)
 0x06 POLY_LO    RW  CRC polynomial (normal form, no x^16 term); reset 0x1021

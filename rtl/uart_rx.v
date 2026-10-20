@@ -41,9 +41,18 @@ module uart_rx (
             frame_err <= 1'b0;
             case (state)
                 S_IDLE: if (!rx) begin
-                    state <= S_START;
-                    cnt   <= {1'b0, div[15:1]};
-                    cz    <= divh_z;
+                    if (div_z) begin
+                        // 1 clock/bit: this cycle is the whole start bit.
+                        // S_START would sample one bit late and corrupt the byte.
+                        state <= S_DATA;
+                        cnt   <= div;
+                        cz    <= 1'b1;
+                        bitn  <= 3'd0;
+                    end else begin
+                        state <= S_START;
+                        cnt   <= {1'b0, div[15:1]};
+                        cz    <= divh_z;
+                    end
                 end
                 S_START: if (!cz) begin cnt <= cnt - 16'd1; cz <= cnt_1; end
                 else if (!rx) begin
