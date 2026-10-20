@@ -30,8 +30,15 @@ else
 LIB ?= $(HOME_LIB)
 endif
 
-.PHONY: all lint test test-icarus test-cocotb coverage synth fetch-lib clean
+.PHONY: all lint test test-icarus test-cocotb coverage synth fetch-lib formal gls clean
 all: lint test synth
+
+SBY ?= sby
+YOSYS_CONFIG ?= yosys-config
+SIMCELLS ?= $(shell $(YOSYS_CONFIG) --datdir 2>/dev/null)/simcells.v
+# tb_top elaborates CLK_HZ=10_000_000, BAUD=115200 (reset divisor 86).
+GLS_CLK_HZ ?= 10000000
+GLS_BAUD ?= 115200
 
 test: test-icarus test-cocotb
 
@@ -80,12 +87,34 @@ synth: | $(BUILD)/synth
 	LIB=$(LIB) TOP=$(TOP) RTL="$(RTL)" OUT=$(BUILD)/synth $(NICE) $(YOSYS) -q -l $(BUILD)/synth/yosys.log -c synth/synth.tcl
 	$(PYTHON) scripts/synth_summary.py $(BUILD)/synth/report.txt | tee $(BUILD)/synth/summary.txt
 
+# ---- formal (SymbiYosys: CRC BMC, UART safety, register-file prove) ----
+formal: | $(BUILD)/formal
+	$(NICE) $(SBY) -f -d $(BUILD)/formal/crc16_bmc formal/crc16.sby bmc
+	$(NICE) $(SBY) -f -d $(BUILD)/formal/crc16_cover formal/crc16.sby cover
+	$(NICE) $(SBY) -f -d $(BUILD)/formal/uart_rx formal/uart_rx.sby
+	$(NICE) $(SBY) -f -d $(BUILD)/formal/regfile formal/regfile.sby
+
+# ---- generic-cell gate-level sim (no PDK, no place-and-route) ----
+# Yosys `synth` to $_AND_ / $_DFF_* / ..., then Icarus + simcells.v on tb_top.
+gls: | $(BUILD)/gls
+	@test -f "$(SIMCELLS)" || { echo "simcells.v not found via yosys-config --datdir"; exit 1; }
+	CLK_HZ=$(GLS_CLK_HZ) BAUD=$(GLS_BAUD) TOP=$(TOP) RTL="$(RTL)" OUT=$(BUILD)/gls \
+	  $(NICE) $(YOSYS) -q -l $(BUILD)/gls/yosys.log -c synth/gls.tcl
+	sed -e 's/tt_um_alexstevens_serialcrc #(.CLK_HZ(10_000_000), .BAUD(115_200)) dut/tt_um_alexstevens_serialcrc dut/' \
+	  tb/tb_top.v > $(BUILD)/gls/tb_top.v
+	$(IVERILOG) -g2005 -Wno-timescale -o $(BUILD)/gls/tb_top.vvp -s tb_top \
+	  $(BUILD)/gls/tb_top.v $(BUILD)/gls/netlist.v $(SIMCELLS)
+	$(NICE) $(VVP) -n $(BUILD)/gls/tb_top.vvp > $(BUILD)/gls/tb_top.log 2>&1
+	@if grep -q '^PASS' $(BUILD)/gls/tb_top.log; then \
+	  echo "[PASS] gls: $$(grep '^PASS' $(BUILD)/gls/tb_top.log)"; \
+	else echo "[FAIL] gls"; tail -n 40 $(BUILD)/gls/tb_top.log; exit 1; fi
+
 # Download only the typical-corner liberty file (no full PDK needed).
 fetch-lib:
 	mkdir -p $(BUILD)/lib
 	curl -fsSL -o $(FETCH_LIB) $(LIB_URL)
 
-$(BUILD)/sim $(BUILD)/coverage $(BUILD)/synth:
+$(BUILD)/sim $(BUILD)/coverage $(BUILD)/synth $(BUILD)/formal $(BUILD)/gls:
 	mkdir -p $@
 
 clean:

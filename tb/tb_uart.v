@@ -76,6 +76,74 @@ module tb_uart;
     endtask
 
     // Drive the line from the testbench with bitclk clocks per bit.
+    // Cycle of the stop-bit sample, 0-based from the posedge that first
+    // sees the start bit. Center of each bit is (div + 1) >> 1.
+    function integer sample_at;
+        input [15:0] d;
+        begin
+            sample_at = ((d + 1) >> 1) + 9 * (d + 1);
+        end
+    endfunction
+
+    task expect_sample(input [15:0] d, input [7:0] b, input [8*24-1:0] what);
+        integer bitclk, bi, ti, cyc, saw;
+        reg [7:0] got;
+        begin
+            bitclk = d + 1;
+            div = d;
+            use_tb = 1'b1;
+            tb_line = 1'b1;
+            repeat (4) @(negedge clk);
+            saw = -1;
+            got = 8'hxx;
+            cyc = 0;
+            for (bi = 0; bi < 10; bi = bi + 1) begin
+                if (bi == 0) tb_line = 1'b0;
+                else if (bi == 9) tb_line = 1'b1;
+                else tb_line = b[bi - 1];
+                for (ti = 0; ti < bitclk; ti = ti + 1) begin
+                    @(posedge clk);
+                    #1;
+                    if (valid && saw < 0) begin
+                        saw = cyc;
+                        got = rxd;
+                    end
+                    cyc = cyc + 1;
+                    @(negedge clk);
+                end
+            end
+            tb_line = 1'b1;
+            check(saw, sample_at(d), what);
+            check(got, b, "sample data");
+        end
+    endtask
+
+    // Last cycle of the start bit is the opposite of the center. An even
+    // divisor used to sample there and reject this as a false start.
+    task early_start_tail(input [15:0] d, input [7:0] b, input [8*24-1:0] what);
+        integer bitclk, bi, ti, prev;
+        begin
+            bitclk = d + 1;
+            div = d;
+            use_tb = 1'b1;
+            tb_line = 1'b1;
+            repeat (4) @(negedge clk);
+            prev = nrx;
+            for (bi = 0; bi < 10; bi = bi + 1) begin
+                for (ti = 0; ti < bitclk; ti = ti + 1) begin
+                    if (bi == 0) tb_line = (ti == bitclk - 1);
+                    else if (bi == 9) tb_line = 1'b1;
+                    else tb_line = b[bi - 1];
+                    @(negedge clk);
+                end
+            end
+            tb_line = 1'b1;
+            repeat (bitclk * 4) @(negedge clk);
+            check(nrx - prev, 1, what);
+            check(last, b, "center data");
+        end
+    endtask
+
     task tb_send(input [7:0] b, input stopbit, input integer bitclk);
         integer k;
         begin
@@ -177,6 +245,15 @@ module tb_uart;
         repeat (16) @(negedge clk);
         check(nrx - old, 8, "back-to-back frames");
         check(last, 8'h01, "back-to-back last");
+
+        // Odd divisors were already centered. Even divisors used to sample
+        // one cycle later, on the trailing edge of the bit.
+        expect_sample(16'd1, 8'hC3, "sample div 1");
+        expect_sample(16'd2, 8'hA5, "sample div 2");
+        expect_sample(16'd3, 8'h3C, "sample div 3");
+        expect_sample(16'd4, 8'h5A, "sample div 4");
+        expect_sample(16'd6, 8'h96, "sample div 6");
+        early_start_tail(16'd2, 8'hFF, "even div center");
 
         if (errors == 0) $display("PASS tb_uart: %0d checks, %0d bytes received", checks, nrx);
         else             $display("FAIL tb_uart: %0d errors / %0d checks", errors, checks);

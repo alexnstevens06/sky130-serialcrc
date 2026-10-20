@@ -31,6 +31,8 @@ before the 16th bit was not that captured value: it stays in UART_DATA with
 rx_valid set, and it is not an overrun. Overrun means an unread byte was
 overwritten by one that no in-flight read will return. Deasserting cs_n mid-transaction aborts it with no effect.
 MISO = 0 when cs_n high.
+Releasing reset while SCLK is high and CS is already low is not a rising
+edge and does not shift a bit. SCLK low at that moment is only a falling edge.
 
 ## Register map (8-bit)
 0x00 ID         RO  0xA5
@@ -66,7 +68,8 @@ write arrive in the same cycle, the autofeed byte wins. (At any baud divisor a U
 takes >= 10 clocks and the CRC needs 4, so autofeed never overruns the engine.)
 
 ## Module breakdown (rtl/)
-sync2.v, spi_slave.v, uart_tx.v, uart_rx.v (mid-bit sampling, false-start rejection,
+sync2.v, spi_slave.v, uart_tx.v, uart_rx.v (mid-bit sampling at cycle
+`(div+1)>>1` of each bit for both even and odd divisors, false-start rejection,
 stop-bit check), crc16_engine.v (parameter WIDTH=16, dual-edge 2-bit-per-clock LFSR, runtime poly),
 regfile.v, tt_um_alexstevens_serialcrc.v (top). Plain Verilog-2005 (synthesizable with
 yosys + verilator lint-clean with -Wall; no `initial` in RTL).

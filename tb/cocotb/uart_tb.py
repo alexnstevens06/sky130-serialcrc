@@ -233,3 +233,56 @@ async def test_framing_false_start_and_baud_tolerance(dut):
     sb.eq(mon.bytes[-1], 0x01, "back-to-back last")
     sb.true(mon.bytes == [0x80 >> i for i in range(8)], f"back-to-back data {mon.bytes}")
     sb.note()
+
+
+def center_cycle(div):
+    """Stop-bit sample, 0-based from the first cycle the start bit is seen."""
+    return ((div + 1) >> 1) + 9 * (div + 1)
+
+
+@cocotb.test(timeout_time=10, timeout_unit="ms")
+async def test_even_divisor_sample_phase(dut):
+    """Even divisors sample the center of the bit, not one cycle later."""
+    sb = Scoreboard()
+    mon = await boot(dut)
+    for div in (1, 2, 3, 4, 6):
+        dut.div.value = div
+        dut.use_line.value = 1
+        dut.line_in.value = 1
+        byte = 0xA5
+        bits = [0] + [((byte >> index) & 1) for index in range(8)] + [1]
+        await FallingEdge(dut.clk)
+        saw = None
+        cycle = 0
+        for bit in bits:
+            dut.line_in.value = bit
+            for _ in range(div + 1):
+                await RisingEdge(dut.clk)
+                await ReadOnly()
+                if saw is None and int(dut.valid.value):
+                    saw = cycle
+                    sb.eq(int(dut.rx_data.value), byte, f"sample data div {div}")
+                cycle += 1
+                await FallingEdge(dut.clk)
+        sb.eq(saw, center_cycle(div), f"sample cycle div {div}")
+
+    # The last cycle of a div-2 start bit is past the center. Raising the
+    # line there used to look like a false start.
+    dut.div.value = 2
+    dut.use_line.value = 1
+    dut.line_in.value = 1
+    mon.bytes.clear()
+    mon.frame_errs = 0
+    await FallingEdge(dut.clk)
+    for bi in range(10):
+        for ti in range(3):
+            if bi == 0:
+                dut.line_in.value = int(ti == 2)
+            else:
+                dut.line_in.value = 1
+            await FallingEdge(dut.clk)
+    dut.line_in.value = 1
+    await wait_bytes(dut, mon, 1, 80)
+    sb.eq(mon.bytes[-1], 0xFF, "even divisor keeps a start bit with a late high")
+    sb.eq(mon.frame_errs, 0, "late start-bit high is not a framing error")
+    sb.note()

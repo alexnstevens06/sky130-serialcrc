@@ -21,7 +21,10 @@ module tt_um_alexstevens_serialcrc #(
     // ---- input synchronizers ----
     wire uart_rx, spi_sclk, spi_cs_n, spi_mosi;
     sync2 #(.RESET_VAL(1'b1)) u_sync_rx   (.clk(clk), .rst_n(rst_n), .d(ui_in[0]), .q(uart_rx));
-    sync2 #(.RESET_VAL(1'b0)) u_sync_sclk (.clk(clk), .rst_n(rst_n), .d(ui_in[1]), .q(spi_sclk));
+    // Reset high: a pin that is already high must not turn into a rising
+    // edge on the same clock CS becomes active (both synchronizers settle
+    // together). A low pin falls through after reset and does not shift a bit.
+    sync2 #(.RESET_VAL(1'b1)) u_sync_sclk (.clk(clk), .rst_n(rst_n), .d(ui_in[1]), .q(spi_sclk));
     sync2 #(.RESET_VAL(1'b1)) u_sync_cs   (.clk(clk), .rst_n(rst_n), .d(ui_in[2]), .q(spi_cs_n));
     sync2 #(.RESET_VAL(1'b0)) u_sync_mosi (.clk(clk), .rst_n(rst_n), .d(ui_in[3]), .q(spi_mosi));
 
